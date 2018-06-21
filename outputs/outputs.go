@@ -12,6 +12,7 @@ import (
 	"github.com/aelsabbahy/goss/resource"
 	"github.com/aelsabbahy/goss/util"
 	"github.com/fatih/color"
+	"github.com/y0ssar1an/q"
 )
 
 type Outputer interface {
@@ -118,6 +119,7 @@ func FormatOptions() []string {
 		for _, opt := range formatOptions {
 			if !(util.IsValueInList(opt, list)) {
 				list = append(list, opt)
+				q.Q(list)
 			}
 		}
 	}

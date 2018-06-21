@@ -44,6 +44,9 @@ release/goss-linux-amd64: $(GO_FILES)
 release/goss-linux-arm: $(GO_FILES)
 	$(info INFO: Starting build $@)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -ldflags "-X main.version=$(TRAVIS_TAG) -s -w" -o release/$(cmd)-linux-arm $(exe)
+release/goss-darwin-amd64: $(GO_FILES)
+	$(info INFO: Starting build $@)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.version=$(TRAVIS_TAG) -s -w" -o release/$(cmd)-darwin-amd64 $(exe)
 
 
 

@@ -25,6 +25,7 @@ func (r Json) Output(w io.Writer, results <-chan []resource.TestResult,
 			if !testResult.Successful {
 				failed++
 			}
+
 			m := struct2map(testResult)
 			m["summary-line"] = humanizeResult(testResult)
 			m["duration"] = int64(m["duration"].(float64))
@@ -32,7 +33,6 @@ func (r Json) Output(w io.Writer, results <-chan []resource.TestResult,
 			testCount++
 		}
 	}
-
 	summary := make(map[string]interface{})
 	duration := time.Since(startTime)
 	summary["test-count"] = testCount

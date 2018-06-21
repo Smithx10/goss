@@ -12,12 +12,11 @@ import (
 	"github.com/aelsabbahy/goss/util"
 	"github.com/fatih/color"
 	"github.com/patrickmn/go-cache"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/urfave/cli"
 )
 
 func Serve(c *cli.Context) {
-	endpoint := c.String("endpoint")
-	color.NoColor = true
 	cache := cache.New(c.Duration("cache"), 30*time.Second)
 
 	health := healthHandler{
@@ -29,19 +28,39 @@ func Serve(c *cli.Context) {
 		gossMu:        &sync.Mutex{},
 		maxConcurrent: c.Int("max-concurrent"),
 	}
-	if c.String("format") == "json" {
-		health.contentType = "application/json"
+
+	color.NoColor = true
+
+	health.getExitCode()
+
+	if c.String("format") == "prometheus" {
+		runHTTPHandler(c, promhttp.Handler())
+
+	} else {
+
+		if c.String("format") == "json" {
+			health.contentType = "application/json"
+			runHTTPHandler(c, health)
+		}
 	}
-	http.Handle(endpoint, health)
+}
+
+func runHTTPHandler(c *cli.Context, handler http.Handler) {
+
 	listenAddr := c.String("listen-addr")
+	endpoint := c.String("endpoint")
+
+	http.Handle(endpoint, handler)
 	log.Printf("Starting to listen on: %s", listenAddr)
 	log.Fatal(http.ListenAndServe(c.String("listen-addr"), nil))
+
 }
 
 type res struct {
 	exitCode int
 	b        bytes.Buffer
 }
+
 type healthHandler struct {
 	c             *cli.Context
 	gossConfig    GossConfig
@@ -53,11 +72,18 @@ type healthHandler struct {
 	maxConcurrent int
 }
 
-func (h healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
+func (h healthHandler) getExitCode() (exitCode int, byteBuffer bytes.Buffer) {
 	outputConfig := util.OutputConfig{
 		FormatOptions: h.c.StringSlice("format-options"),
 	}
+	iStartTime := time.Now()
+	out := validate(h.sys, h.gossConfig, h.maxConcurrent)
+	var b bytes.Buffer
+	eCode := h.outputer.Output(&b, out, iStartTime, outputConfig)
+	return eCode, b
+}
+
+func (h healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("%v: requesting health probe", r.RemoteAddr)
 	var resp res
@@ -73,10 +99,7 @@ func (h healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			h.sys = system.New(h.c)
 			log.Printf("%v: Stale cache, running tests", r.RemoteAddr)
-			iStartTime := time.Now()
-			out := validate(h.sys, h.gossConfig, h.maxConcurrent)
-			var b bytes.Buffer
-			exitCode := h.outputer.Output(&b, out, iStartTime, outputConfig)
+			exitCode, b := h.getExitCode()
 			resp = res{exitCode: exitCode, b: b}
 			h.cache.Set("res", resp, cache.DefaultExpiration)
 		}
