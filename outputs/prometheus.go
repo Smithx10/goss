@@ -1,47 +1,73 @@
 package outputs
 
 import (
+	"fmt"
 	"io"
 	"time"
 
 	"github.com/aelsabbahy/goss/resource"
 	"github.com/aelsabbahy/goss/util"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
-type Prom struct{}
+type Prometheus struct{}
 
-func (p Prom) Output(w io.Writer, results <-chan []resource.TestResult,
+func (r Prometheus) Output(w io.Writer, results <-chan []resource.TestResult,
 	startTime time.Time, outConfig util.OutputConfig) (exitCode int) {
-
+	var testCount, success, failed, skipped int
+	testCount, success, failed, skipped = 0, 0, 0, 0
+	var summary map[int]string
+	summary = make(map[int]string)
 	for resultGroup := range results {
 		for _, testResult := range resultGroup {
-			var setValue float64 = 0
-			if testResult.Successful == false {
-				setValue = float64(1)
+			switch testResult.Result {
+			case resource.SUCCESS:
+				success++
+			case resource.FAIL:
+				failed++
+			case resource.SKIP:
+				skipped++
+			default:
+				panic(fmt.Sprintf("Unexpected Result Code: %v\n", testResult.Result))
 			}
-
-			gossGauge.With(prometheus.Labels{
-				"resource_type": testResult.ResourceType,
-				"resource_id":   testResult.ResourceId,
-				"property":      testResult.Property,
-				"title":         testResult.Title,
-			}).Set(setValue)
+			//summary[testCount] = fmt.Sprintf("%s\n", promFormat(testResult))
+			summary[testCount] = fmt.Sprintf(promFormat(testResult))
+			testCount++
 		}
 	}
-
+	for i := 0; i < testCount; i++ {
+		fmt.Fprintf(w, "%s", summary[i])
+	}
+	// Print goss run metrics
+	fmt.Fprintf(w, "goss_count %d\n", testCount)
+	fmt.Fprintf(w, "goss_success_count %d\n", success)
+	fmt.Fprintf(w, "goss_skipped_count %d\n", skipped)
+	fmt.Fprintf(w, "goss_failed_count %d\n", failed)
+	duration := float64(time.Since(startTime).Seconds())
+	fmt.Fprintf(w, "goss_duration_seconds %.3f\n", duration)
+	if failed > 0 {
+		return 1
+	}
 	return 0
 }
-
-var (
-	gossGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "goss",
-		Help: "Lets you know if goss assertions were true 0, or false 1"},
-		[]string{"resource_type", "resource_id", "property", "title"},
-	)
-)
-
 func init() {
-	prometheus.MustRegister(gossGauge)
-	RegisterOutputer("prometheus", &Prom{}, []string{})
+	RegisterOutputer("prometheus", &Prometheus{}, []string{})
+}
+func promFormat(r resource.TestResult) string {
+	var returnString string
+	if r.Property == "contains" {
+		for _, expected := range r.Expected {
+			for _, found := range r.Found {
+				if found == expected {
+					r.Result = 0
+				}
+			}
+			returnString += fmt.Sprintf("goss{resource_type=\"%s\",resource_id=\"%s\",property=\"%s\",pattern=\"%s\"} %d \n",
+				r.ResourceType, r.ResourceId, r.Property, expected, int64(r.Result))
+		}
+	}
+	if r.Property != "contains" {
+		returnString = fmt.Sprintf("goss{resource_type=\"%s\",resource_id=\"%s\",property=\"%s\"} %d \n",
+			r.ResourceType, r.ResourceId, r.Property, int64(r.Result))
+	}
+	return returnString
 }
